@@ -2,9 +2,36 @@
   const pluginId = "bf-portal-copy-paste-plugin";
   const plugin = BF2042Portal.Plugins.getPlugin(pluginId);
 
+  let lastMouse = { x: 100, y: 100 }; // fallback defaults
+
   /**
-   * Copy selected block into clipboard (JSON).
-   * Includes all child blocks (full subtree).
+   * Tracks mouse position over workspace SVG.
+   */
+  function attachMouseTracking(ws) {
+    const svg = ws.getParentSvg();
+
+    svg.addEventListener("mousemove", (e) => {
+      lastMouse.x = e.clientX;
+      lastMouse.y = e.clientY;
+    });
+  }
+
+  /**
+   * Convert screen → workspace coordinates (compatible with older Blockly)
+   */
+  function screenToWorkspace(ws, x, y) {
+    const metrics = ws.getMetrics();
+
+    const rect = ws.getParentSvg().getBoundingClientRect();
+
+    const wsX = (x - rect.left + metrics.viewLeft) / ws.scale;
+    const wsY = (y - rect.top + metrics.viewTop) / ws.scale;
+
+    return { x: wsX, y: wsY };
+  }
+
+  /**
+   * Copy block to clipboard
    */
   async function copyBlockToClipboard(block) {
     try {
@@ -15,18 +42,20 @@
       const json = JSON.stringify(data, null, 2);
 
       await navigator.clipboard.writeText(json);
-      console.info("[CopyPastePlugin] Block copied to clipboard.");
+
+      console.info("[CopyPastePlugin] Copied block to clipboard.");
     } catch (err) {
       console.error("[CopyPastePlugin] Copy failed:", err);
     }
   }
 
   /**
-   * Paste block at cursor position.
-   * Reads JSON from clipboard → appends block.
+   * Paste block from clipboard at cursor
    */
   async function pasteBlockFromClipboard() {
     try {
+      const ws = _Blockly.getMainWorkspace();
+
       const text = await navigator.clipboard.readText();
       if (!text) {
         console.warn("[CopyPastePlugin] Clipboard empty.");
@@ -35,17 +64,11 @@
 
       let blockData = JSON.parse(text);
 
-      const ws = _Blockly.getMainWorkspace();
+      // Convert cursor → workspace coords
+      const pos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
 
-      // Get mouse cursor position in workspace coordinates
-      const pointer = ws.getPointerPosition();
-      const metrics = ws.getMetrics();
-
-      const x = (pointer.x + metrics.viewLeft) / ws.scale;
-      const y = (pointer.y + metrics.viewTop) / ws.scale;
-
-      blockData.x = x;
-      blockData.y = y;
+      blockData.x = pos.x;
+      blockData.y = pos.y;
 
       _Blockly.serialization.blocks.append(blockData, ws);
 
@@ -55,17 +78,14 @@
     }
   }
 
-  // --- Context menu items ---
+  // ----- Context menu items -----
 
   const copyBlockMenuItem = {
     id: "copyBlockMenuItem",
-    displayText: "Copy Block",
+    displayText: "Copy - BF6",
     preconditionFn: () => "enabled",
-    callback: function (scope) {
-      const block = scope.block;
-      if (block) {
-        copyBlockToClipboard(block);
-      }
+    callback: (scope) => {
+      if (scope.block) copyBlockToClipboard(scope.block);
     },
     scopeType: _Blockly.ContextMenuRegistry.ScopeType.BLOCK,
     weight: 90
@@ -73,29 +93,30 @@
 
   const pasteBlockMenuItem = {
     id: "pasteBlockMenuItem",
-    displayText: "Paste Block",
+    displayText: "Paste - BF6",
     preconditionFn: () => "enabled",
-    callback: function () {
-      pasteBlockFromClipboard();
-    },
+    callback: () => pasteBlockFromClipboard(),
     scopeType: _Blockly.ContextMenuRegistry.ScopeType.WORKSPACE,
     weight: 90
   };
 
   plugin.initializeWorkspace = function () {
+    console.info("[CopyPastePlugin] Initializing…");
+
     try {
+      const ws = _Blockly.getMainWorkspace();
       const registry = _Blockly.ContextMenuRegistry.registry;
 
-      // Remove old if exists
-      if (registry.getItem(copyBlockMenuItem.id)) {
+      // Remove existing menu items if plugin reloads
+      if (registry.getItem(copyBlockMenuItem.id))
         registry.unregister(copyBlockMenuItem.id);
-      }
-      if (registry.getItem(pasteBlockMenuItem.id)) {
+      if (registry.getItem(pasteBlockMenuItem.id))
         registry.unregister(pasteBlockMenuItem.id);
-      }
 
       registry.register(copyBlockMenuItem);
       registry.register(pasteBlockMenuItem);
+
+      attachMouseTracking(ws);
 
       console.info("[CopyPastePlugin] Ready.");
     } catch (err) {
