@@ -1,5 +1,5 @@
 (function () {
-  const pluginId = "BF6-copy-paste";
+  const pluginId = "bf2042-copy-paste-enhanced-plugin";
   const plugin = BF2042Portal.Plugins.getPlugin(pluginId);
 
   function log(msg, data) {
