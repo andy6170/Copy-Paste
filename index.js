@@ -1,197 +1,105 @@
 (function () {
-  const pluginId = "bf2042-copy-paste-enhanced-plugin";
+  const pluginId = "bf-portal-copy-paste-plugin";
   const plugin = BF2042Portal.Plugins.getPlugin(pluginId);
 
-  function log(msg, data) {
-    console.log(`[${pluginId}] ${msg}`, data || "");
-  }
-  function error(msg, data) {
-    console.error(`[${pluginId}] ${msg}`, data || "");
-  }
+  /**
+   * Copy selected block into clipboard (JSON).
+   * Includes all child blocks (full subtree).
+   */
+  async function copyBlockToClipboard(block) {
+    try {
+      const data = _Blockly.serialization.blocks.save(block, {
+        addCoordinates: false
+      });
 
-  // Track selection set (multi-select)
-  let multiSelect = new Set();
-  let shiftHeld = false;
+      const json = JSON.stringify(data, null, 2);
 
-  // Track last mouse position (Blockly workspace coordinates)
-  let cursorPos = { x: 0, y: 0 };
-
-
-  // ---------------------------------------------------------
-  // 🔹 Track SHIFT for multiselect
-  // ---------------------------------------------------------
-  document.addEventListener("keydown", e => {
-    if (e.key === "Shift") shiftHeld = true;
-  });
-  document.addEventListener("keyup", e => {
-    if (e.key === "Shift") shiftHeld = false;
-  });
-
-
-  // ---------------------------------------------------------
-  // 🔹 Track cursor position via context menu open
-  // ---------------------------------------------------------
-  function hookContextMenuTracking() {
-    const origShow = _Blockly.ContextMenu.show;
-
-    _Blockly.ContextMenu.show = function (evt, menu, rtl) {
-      try {
-        const ws = _Blockly.getMainWorkspace();
-        const svgPoint = _Blockly.utils.svgMath.screenToWsCoordinate(
-          ws,
-          evt.clientX,
-          evt.clientY
-        );
-        cursorPos = { x: svgPoint.x, y: svgPoint.y };
-      } catch (e) {
-        console.warn("Cursor tracking failed:", e);
-      }
-
-      return origShow.apply(this, arguments);
-    };
-  }
-
-
-  // ---------------------------------------------------------
-  // 🔹 Workspace change listener for multi-select
-  // ---------------------------------------------------------
-  function selectionListener(event) {
-    if (!event.blockId) return;
-    if (event.type !== _Blockly.Events.SELECTED) return;
-
-    const ws = _Blockly.getMainWorkspace();
-    const block = ws.getBlockById(event.blockId);
-    if (!block) return;
-
-    if (shiftHeld) {
-      // Toggle block in/out of selection set
-      if (multiSelect.has(block)) {
-        multiSelect.delete(block);
-        block.setHighlighted(false);
-      } else {
-        multiSelect.add(block);
-        block.setHighlighted(true);
-      }
-    } else {
-      // Clear multi-selection when not holding shift
-      multiSelect.forEach(b => b.setHighlighted(false));
-      multiSelect.clear();
+      await navigator.clipboard.writeText(json);
+      console.info("[CopyPastePlugin] Block copied to clipboard.");
+    } catch (err) {
+      console.error("[CopyPastePlugin] Copy failed:", err);
     }
   }
 
-
-  // ---------------------------------------------------------
-  // 🔹 COPY SELECTED BLOCKS (MULTI)
-  // ---------------------------------------------------------
-  async function copyBlocks() {
+  /**
+   * Paste block at cursor position.
+   * Reads JSON from clipboard → appends block.
+   */
+  async function pasteBlockFromClipboard() {
     try {
-      if (multiSelect.size === 0) {
-        alert("No blocks selected. Hold SHIFT and click blocks to select.");
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        console.warn("[CopyPastePlugin] Clipboard empty.");
         return;
       }
 
-      let xml = "";
-      multiSelect.forEach(block => {
-        const dom = _Blockly.Xml.blockToDomWithXY(block, true);
-        _Blockly.Xml.deleteNext(dom);
-        xml += _Blockly.Xml.domToText(dom);
-      });
+      let blockData = JSON.parse(text);
 
-      await BF2042Portal.Shared.copyTextToClipboard(xml);
-      log("Copied blocks to clipboard.");
-    } catch (err) {
-      error("Copy failed", err);
-      alert("Copy failed!");
-    }
-  }
-
-
-  // ---------------------------------------------------------
-  // 🔹 PASTE BLOCKS (AT CURSOR POSITION)
-  // ---------------------------------------------------------
-  async function pasteBlocks() {
-    try {
       const ws = _Blockly.getMainWorkspace();
-      const text = await BF2042Portal.Shared.pasteTextFromClipboard();
 
-      if (!text || !text.trim().match(/<block/)) {
-        alert("Clipboard does not contain valid Blockly block XML.");
-        return;
-      }
+      // Get mouse cursor position in workspace coordinates
+      const pointer = ws.getPointerPosition();
+      const metrics = ws.getMetrics();
 
-      // Wrap multiple blocks if needed
-      let xml = text.trim();
-      if (!xml.startsWith("<xml")) {
-        xml = `<xml xmlns="https://developers.google.com/blockly/xml">${xml}</xml>`;
-      }
+      const x = (pointer.x + metrics.viewLeft) / ws.scale;
+      const y = (pointer.y + metrics.viewTop) / ws.scale;
 
-      // NEW API
-      const dom = Blockly.utils.xml.textToDom(xml);
+      blockData.x = x;
+      blockData.y = y;
 
-      // Adjust pasted block positions
-      const blocks = dom.querySelectorAll("block");
-      blocks.forEach(block => {
-        block.setAttribute("x", cursorPos.x);
-        block.setAttribute("y", cursorPos.y);
-      });
+      _Blockly.serialization.blocks.append(blockData, ws);
 
-      _Blockly.Xml.domToWorkspace(dom, ws);
-
-      log("Pasted blocks at cursor:", cursorPos);
+      console.info("[CopyPastePlugin] Block pasted at cursor.");
     } catch (err) {
-      error("Paste failed", err);
-      alert("Paste failed!");
+      console.error("[CopyPastePlugin] Paste failed:", err);
     }
   }
 
+  // --- Context menu items ---
 
-  // ---------------------------------------------------------
-  // 🔹 Register Context Menu Items
-  // ---------------------------------------------------------
-  const copyItem = {
-    id: "copyBlocksEnhanced",
-    displayText: "Copy Selected Blocks",
+  const copyBlockMenuItem = {
+    id: "copyBlockMenuItem",
+    displayText: "Copy Block",
     preconditionFn: () => "enabled",
-    callback: copyBlocks,
+    callback: function (scope) {
+      const block = scope.block;
+      if (block) {
+        copyBlockToClipboard(block);
+      }
+    },
+    scopeType: _Blockly.ContextMenuRegistry.ScopeType.BLOCK,
+    weight: 90
+  };
+
+  const pasteBlockMenuItem = {
+    id: "pasteBlockMenuItem",
+    displayText: "Paste Block",
+    preconditionFn: () => "enabled",
+    callback: function () {
+      pasteBlockFromClipboard();
+    },
     scopeType: _Blockly.ContextMenuRegistry.ScopeType.WORKSPACE,
     weight: 90
   };
 
-  const pasteItem = {
-    id: "pasteBlocksEnhanced",
-    displayText: "Paste Blocks (Here)",
-    preconditionFn: () => "enabled",
-    callback: pasteBlocks,
-    scopeType: _Blockly.ContextMenuRegistry.ScopeType.WORKSPACE,
-    weight: 89
-  };
-
-
-  // ---------------------------------------------------------
-  // 🔹 Plugin Init
-  // ---------------------------------------------------------
   plugin.initializeWorkspace = function () {
     try {
-      const ws = _Blockly.getMainWorkspace();
       const registry = _Blockly.ContextMenuRegistry.registry;
 
-      // Register items
-      if (registry.getItem(copyItem.id)) registry.unregister(copyItem.id);
-      if (registry.getItem(pasteItem.id)) registry.unregister(pasteItem.id);
+      // Remove old if exists
+      if (registry.getItem(copyBlockMenuItem.id)) {
+        registry.unregister(copyBlockMenuItem.id);
+      }
+      if (registry.getItem(pasteBlockMenuItem.id)) {
+        registry.unregister(pasteBlockMenuItem.id);
+      }
 
-      registry.register(copyItem);
-      registry.register(pasteItem);
+      registry.register(copyBlockMenuItem);
+      registry.register(pasteBlockMenuItem);
 
-      // Upgrade selection logic
-      ws.removeChangeListener(selectionListener);
-      ws.addChangeListener(selectionListener);
-
-      hookContextMenuTracking();
-
-      log("Copy/Paste Enhanced Plugin Loaded!");
-    } catch (e) {
-      error("Initialization failed", e);
+      console.info("[CopyPastePlugin] Ready.");
+    } catch (err) {
+      console.error("[CopyPastePlugin] Initialization error:", err);
     }
   };
-
 })();
