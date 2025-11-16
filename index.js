@@ -15,13 +15,16 @@
     });
   }
 
-  function screenToWorkspace(ws, x, y) {
-    const rect = ws.getParentSvg().getBoundingClientRect();
+  function screenToWorkspace(ws, screenX, screenY) {
+    const svg = ws.getParentSvg();
+    const rect = svg.getBoundingClientRect();
     const metrics = ws.getMetrics();
-    return {
-      x: (x - rect.left + metrics.viewLeft) / ws.scale,
-      y: (y - rect.top + metrics.viewTop) / ws.scale
-    };
+
+    // Convert from screen coordinates to workspace coordinates
+    const x = (screenX - rect.left) / ws.scale + metrics.viewLeft;
+    const y = (screenY - rect.top) / ws.scale + metrics.viewTop;
+
+    return { x, y };
   }
 
   /* -----------------------------------------------------
@@ -65,7 +68,6 @@
     traverseSerializedBlocks(root, (b) => {
       // --- Subroutine argument blocks
       if (b.type === "subroutineArgumentBlock") {
-        // Preserve ARGUMENT_INDEX
         const argIndex = b.fields?.ARGUMENT_INDEX;
         if (argIndex != null && b.inputs) {
           traverseSerializedBlocks(b.inputs, (child) => {
@@ -77,7 +79,7 @@
             }
           });
         }
-        return; // skip further modification
+        return;
       }
 
       // --- General variable fields
@@ -146,6 +148,7 @@
       let data = JSON.parse(json);
       data = sanitizeForWorkspace(ws, data);
 
+      // Correct cursor-based paste
       const pos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
       data.x = pos.x;
       data.y = pos.y;
