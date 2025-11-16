@@ -1,8 +1,8 @@
 {
   "id": "bf-portal-copy-paste-plugin",
-  "name": "Copy/Paste For BF6",
-  "version": "0.0.3",
-  "description": "Adds Copy and Paste block support compatible with newer Blockly versions.",
+  "name": "BF6 Copy/Paste",
+  "version": "0.0.4",
+  "description": "Adds Copy and Paste block support for BF6",
   "main": "index.js",
   "author": "andy6170"
 }
