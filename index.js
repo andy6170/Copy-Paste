@@ -3,7 +3,7 @@
   const plugin = BF2042Portal.Plugins.getPlugin(pluginId);
 
   /* -----------------------------------------------------
-     MOUSE POSITION TRACKING — Fixes offset paste location
+     MOUSE POSITION TRACKING — Paste at cursor
   ----------------------------------------------------- */
   let lastMouse = { x: 0, y: 0 };
 
@@ -18,7 +18,6 @@
   function screenToWorkspace(ws, x, y) {
     const rect = ws.getParentSvg().getBoundingClientRect();
     const metrics = ws.getMetrics();
-
     return {
       x: (x - rect.left + metrics.viewLeft) / ws.scale,
       y: (y - rect.top + metrics.viewTop) / ws.scale
@@ -26,7 +25,7 @@
   }
 
   /* -----------------------------------------------------
-     VARIABLE MANAGEMENT — Create “missing” variables
+     VARIABLE MANAGEMENT — Auto-create missing variables
   ----------------------------------------------------- */
 
   function ensureVariableExists(ws, name, type) {
@@ -37,7 +36,7 @@
       return varMap.createVariable(name, type || "", undefined);
     }
 
-    // Name exists but wrong type → append _Copy until safe
+    // Name exists but type mismatch → append _Copy
     if (existing.type !== type) {
       let suffix = 1;
       let newName = name + "_Copy";
@@ -52,22 +51,18 @@
   }
 
   /* -----------------------------------------------------
-     SANITIZE SERIALIZED TREE BEFORE PASTING
-     Fixes the “FieldDropdown options must not be an empty array”
+     SANITIZE SERIALIZED BLOCKS BEFORE PASTE
   ----------------------------------------------------- */
 
   function traverseSerializedBlocks(node, cb) {
     if (!node) return;
-
     cb(node);
-
     if (node.inputs) {
       for (const input of Object.values(node.inputs)) {
         if (input.block) traverseSerializedBlocks(input.block, cb);
         if (input.shadow) traverseSerializedBlocks(input.shadow, cb);
       }
     }
-
     if (node.next && node.next.block) {
       traverseSerializedBlocks(node.next.block, cb);
     }
@@ -75,11 +70,10 @@
 
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
-      /* Normalize VAR fields — convert object → string */
+      // --- Normalize VAR fields
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           const u = key.toUpperCase();
-
           if (u === "VAR" || u === "VARIABLE" || u.startsWith("VAR")) {
             if (val && typeof val === "object" && val.name) {
               b.fields[key] = val.name;
@@ -91,24 +85,25 @@
         }
       }
 
-      /* Sanitize dropdowns with missing options */
+      // --- Sanitize dropdowns with missing options
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           if (typeof val !== "string") continue;
-
-          const blockType = b.type;
-          const block = ws.newBlock(blockType);
-          const field = block.getField(key);
-
-          if (field && field.getOptions) {
-            const opts = field.getOptions();
-            const valid = opts.map((o) => o[1]);
-            if (!valid.includes(val)) {
-              b.fields[key] = valid[0] || "";
+          try {
+            const blockType = b.type;
+            const block = ws.newBlock(blockType);
+            const field = block.getField(key);
+            if (field && field.getOptions) {
+              const opts = field.getOptions();
+              const valid = opts.map((o) => o[1]);
+              if (!valid.includes(val)) {
+                b.fields[key] = valid[0] || "";
+              }
             }
+            block.dispose(false);
+          } catch (e) {
+            // ignore errors in field sanitization
           }
-
-          block.dispose(false);
         }
       }
     });
@@ -117,45 +112,32 @@
   }
 
   /* -----------------------------------------------------
-     COPY ONLY internal inputs (NOT the block chain)
+     COPY BLOCK — Keep everything except .next
   ----------------------------------------------------- */
 
-  function extractInnerContents(block) {
-    const saved = {
-      type: block.type,
-      inputs: {}
-    };
+  function extractBlockForClipboard(block) {
+    const full = _Blockly.serialization.blocks.save(block);
 
-    const realBlockJSON = _Blockly.serialization.blocks.save(block);
-
-    for (const [inputName, inputData] of Object.entries(realBlockJSON.inputs || {})) {
-      // Keep only inputs that contain child blocks (not the next connection)
-      if (inputData.block) {
-        saved.inputs[inputName] = { block: inputData.block };
-      } else if (inputData.shadow) {
-        saved.inputs[inputName] = { shadow: inputData.shadow };
-      }
+    // Strip the top-level next chain
+    if (full.next) {
+      delete full.next;
     }
 
-    return saved;
+    return full;
   }
-
-  /* -----------------------------------------------------
-     COPY TO CLIPBOARD
-  ----------------------------------------------------- */
 
   async function copyBlockToClipboard(block) {
     try {
-      const minimal = extractInnerContents(block);
+      const minimal = extractBlockForClipboard(block);
       await navigator.clipboard.writeText(JSON.stringify(minimal, null, 2));
-      console.info("[CopyPastePlugin] Copied clean inner contents.");
+      console.info("[CopyPastePlugin] Copied block (excluding chain below).");
     } catch (err) {
       console.error("[CopyPastePlugin] Copy failed:", err);
     }
   }
 
   /* -----------------------------------------------------
-     PASTE FROM CLIPBOARD — With full sanitation
+     PASTE BLOCK AT CURSOR
   ----------------------------------------------------- */
 
   async function pasteBlockFromClipboard() {
@@ -167,13 +149,13 @@
       let data = JSON.parse(json);
       data = sanitizeForWorkspace(ws, data);
 
+      // Paste at mouse cursor
       const pos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
       data.x = pos.x;
       data.y = pos.y;
 
       _Blockly.serialization.blocks.append(data, ws);
-
-      console.info("[CopyPastePlugin] Paste complete.");
+      console.info("[CopyPastePlugin] Paste complete at cursor.");
     } catch (err) {
       console.error("[CopyPastePlugin] Paste failed:", err);
     }
@@ -220,7 +202,7 @@
 
       attachMouseTracking(ws);
 
-      console.info("[CopyPastePlugin] Initialized.");
+      console.info("[CopyPastePlugin] Initialized successfully.");
     } catch (err) {
       console.error("[CopyPastePlugin] Initialization failed:", err);
     }
