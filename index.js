@@ -25,7 +25,7 @@
   }
 
   /* -----------------------------------------------------
-     VARIABLE MANAGEMENT — Auto-create missing variables
+     VARIABLE MANAGEMENT — Only create missing variables
   ----------------------------------------------------- */
   function ensureVariableExists(ws, name, type) {
     const varMap = ws.getVariableMap();
@@ -33,16 +33,6 @@
 
     if (!existing) {
       return varMap.createVariable(name, type || "", undefined);
-    }
-
-    if (existing.type !== type) {
-      let suffix = 1;
-      let newName = name + "_Copy";
-      while (varMap.getVariable(newName)) {
-        suffix++;
-        newName = name + "_Copy" + suffix;
-      }
-      return varMap.createVariable(newName, type || "", undefined);
     }
 
     return existing;
@@ -67,15 +57,15 @@
 
   /* -----------------------------------------------------
      SANITIZE BLOCKS FOR PASTE
-     - Converts VAR objects → string
-     - Auto-creates missing variables
-     - Ensures dropdowns have valid options
-     - Preserves subroutine parameters
+     - Auto-create missing variables
+     - Preserve VAR references for subroutine parameters
+     - Ensure dropdowns have valid options
   ----------------------------------------------------- */
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
-      // --- Preserve subroutineArgumentBlock ARGUMENT_INDEX
+      // --- Subroutine argument blocks
       if (b.type === "subroutineArgumentBlock") {
+        // Preserve ARGUMENT_INDEX
         const argIndex = b.fields?.ARGUMENT_INDEX;
         if (argIndex != null && b.inputs) {
           traverseSerializedBlocks(b.inputs, (child) => {
@@ -83,28 +73,27 @@
               let varName = child.fields.VAR;
               if (typeof varName === "object" && varName.name) varName = varName.name;
               ensureVariableExists(ws, varName, child.fields.VAR?.type || "");
-              child.fields.VAR = varName;
+              // Do not overwrite VAR field
             }
           });
         }
-        return; // skip further modification for argument blocks
+        return; // skip further modification
       }
 
-      // --- Normalize VAR fields and auto-create variables
+      // --- General variable fields
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           const u = key.toUpperCase();
           if (u === "VAR" || u === "VARIABLE" || u.startsWith("VAR")) {
             let varName = val;
             if (val && typeof val === "object" && val.name) varName = val.name;
-            const varType = val && val.type ? val.type : "";
-            ensureVariableExists(ws, varName, varType);
-            b.fields[key] = varName;
+            ensureVariableExists(ws, varName, val?.type || "");
+            // Preserve the original VAR reference; do not overwrite field
           }
         }
       }
 
-      // --- Sanitize dropdowns with missing options
+      // --- Sanitize dropdowns
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           if (typeof val !== "string") continue;
