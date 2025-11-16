@@ -137,7 +137,7 @@
   }
 
   /* -----------------------------------------------------
-     PASTE BLOCK AT CURSOR
+     PASTE BLOCK AT CURSOR (preserve relative layout)
   ----------------------------------------------------- */
   async function pasteBlockFromClipboard() {
     try {
@@ -148,13 +148,25 @@
       let data = JSON.parse(json);
       data = sanitizeForWorkspace(ws, data);
 
-      // Correct cursor-based paste
-      const pos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
-      data.x = pos.x;
-      data.y = pos.y;
+      // Original top-left corner of copied block
+      const originalX = data.x || 0;
+      const originalY = data.y || 0;
+
+      // Mouse position in workspace coordinates
+      const mousePos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
+
+      // Offset to paste at cursor
+      const dx = mousePos.x - originalX;
+      const dy = mousePos.y - originalY;
+
+      // Apply offset to all blocks in tree
+      traverseSerializedBlocks(data, (b) => {
+        b.x = (b.x || 0) + dx;
+        b.y = (b.y || 0) + dy;
+      });
 
       _Blockly.serialization.blocks.append(data, ws);
-      console.info("[CopyPastePlugin] Paste complete at cursor.");
+      console.info("[CopyPastePlugin] Paste complete at cursor with relative positions preserved.");
     } catch (err) {
       console.error("[CopyPastePlugin] Paste failed:", err);
     }
