@@ -27,7 +27,6 @@
   /* -----------------------------------------------------
      VARIABLE MANAGEMENT — Auto-create missing variables
   ----------------------------------------------------- */
-
   function ensureVariableExists(ws, name, type) {
     const varMap = ws.getVariableMap();
     const existing = varMap.getVariable(name);
@@ -51,9 +50,8 @@
   }
 
   /* -----------------------------------------------------
-     SANITIZE SERIALIZED BLOCKS BEFORE PASTE
+     TRAVERSE BLOCK TREE
   ----------------------------------------------------- */
-
   function traverseSerializedBlocks(node, cb) {
     if (!node) return;
     cb(node);
@@ -68,19 +66,29 @@
     }
   }
 
+  /* -----------------------------------------------------
+     SANITIZE BLOCKS FOR PASTE
+     - Converts VAR objects → string
+     - Auto-creates missing variables
+     - Ensures dropdowns have valid options
+  ----------------------------------------------------- */
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
-      // --- Normalize VAR fields
+      // --- Normalize VAR fields and auto-create variables
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           const u = key.toUpperCase();
           if (u === "VAR" || u === "VARIABLE" || u.startsWith("VAR")) {
+            let varName = val;
             if (val && typeof val === "object" && val.name) {
-              b.fields[key] = val.name;
+              varName = val.name;
             }
-            if (typeof b.fields[key] === "string") {
-              ensureVariableExists(ws, b.fields[key], b.fields.type || "");
-            }
+
+            const varType = val && val.type ? val.type : "";
+            ensureVariableExists(ws, varName, varType);
+
+            // Replace VAR field with string name
+            b.fields[key] = varName;
           }
         }
       }
@@ -102,7 +110,7 @@
             }
             block.dispose(false);
           } catch (e) {
-            // ignore errors in field sanitization
+            // ignore field sanitization errors
           }
         }
       }
@@ -114,11 +122,10 @@
   /* -----------------------------------------------------
      COPY BLOCK — Keep everything except .next
   ----------------------------------------------------- */
-
   function extractBlockForClipboard(block) {
     const full = _Blockly.serialization.blocks.save(block);
 
-    // Strip the top-level next chain
+    // Strip top-level .next chain
     if (full.next) {
       delete full.next;
     }
@@ -139,7 +146,6 @@
   /* -----------------------------------------------------
      PASTE BLOCK AT CURSOR
   ----------------------------------------------------- */
-
   async function pasteBlockFromClipboard() {
     try {
       const ws = _Blockly.getMainWorkspace();
@@ -164,7 +170,6 @@
   /* -----------------------------------------------------
      CONTEXT MENU ITEMS
   ----------------------------------------------------- */
-
   const copyItem = {
     id: "copyBlockMenuItem",
     displayText: "Copy - BF6",
@@ -188,7 +193,6 @@
   /* -----------------------------------------------------
      INITIALIZATION
   ----------------------------------------------------- */
-
   plugin.initializeWorkspace = function () {
     try {
       const ws = _Blockly.getMainWorkspace();
