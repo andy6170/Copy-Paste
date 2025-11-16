@@ -18,21 +18,27 @@
     if (!lastMouseEvent) {
       // fallback: center of workspace
       const metrics = ws.getMetrics();
-      return { x: metrics.viewLeft + metrics.viewWidth / 2, y: metrics.viewTop + metrics.viewHeight / 2 };
+      return {
+        x: metrics.viewLeft + metrics.viewWidth / 2,
+        y: metrics.viewTop + metrics.viewHeight / 2,
+      };
     }
 
-    // Get bounding rect of the workspace SVG
     const svg = ws.getParentSvg();
     const rect = svg.getBoundingClientRect();
 
-    // Mouse position relative to SVG
+    // Mouse relative to the SVG
     const relativeX = lastMouseEvent.clientX - rect.left;
     const relativeY = lastMouseEvent.clientY - rect.top;
 
-    // Convert to workspace coordinates accounting for zoom & scroll
-    const metrics = ws.getMetrics();
-    const x = metrics.viewLeft + relativeX / ws.scale;
-    const y = metrics.viewTop + relativeY / ws.scale;
+    // Workspace pan/scroll and zoom
+    const scrollX = ws.scrollX || 0;
+    const scrollY = ws.scrollY || 0;
+    const scale = ws.scale || 1;
+
+    // Convert mouse position to workspace coordinates
+    const x = relativeX / scale + scrollX;
+    const y = relativeY / scale + scrollY;
 
     return { x, y };
   }
@@ -153,14 +159,11 @@
       let data = JSON.parse(json);
       data = sanitizeForWorkspace(ws, data);
 
-      // Original top-left corner of copied block
       const originalX = data.x || 0;
       const originalY = data.y || 0;
 
-      // Workspace coordinates of the last mouse event
       const mousePos = getMouseWorkspacePosition(ws);
 
-      // Offset to paste at cursor
       const dx = mousePos.x - originalX;
       const dy = mousePos.y - originalY;
 
