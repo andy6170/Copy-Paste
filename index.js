@@ -5,26 +5,30 @@
   /* -----------------------------------------------------
      MOUSE POSITION TRACKING — Paste at cursor
   ----------------------------------------------------- */
-  let lastMouse = { x: 0, y: 0 };
+  let lastMouseEvent = null;
 
   function attachMouseTracking(ws) {
     const svg = ws.getParentSvg();
     svg.addEventListener("mousemove", (e) => {
-      lastMouse.x = e.clientX;
-      lastMouse.y = e.clientY;
+      lastMouseEvent = e;
     });
   }
 
-  function screenToWorkspace(ws, screenX, screenY) {
-    const svg = ws.getParentSvg();
-    const rect = svg.getBoundingClientRect();
-    const metrics = ws.getMetrics();
+  function getMouseWorkspacePosition(ws) {
+    if (!lastMouseEvent) {
+      // fallback: center of workspace
+      const metrics = ws.getMetrics();
+      return { x: metrics.viewLeft + metrics.viewWidth / 2, y: metrics.viewTop + metrics.viewHeight / 2 };
+    }
 
-    // Convert from screen coordinates to workspace coordinates
-    const x = (screenX - rect.left) / ws.scale + metrics.viewLeft;
-    const y = (screenY - rect.top) / ws.scale + metrics.viewTop;
+    // convert mouse event to workspace coordinates
+    const pt = ws.getParentSvg().createSVGPoint();
+    pt.x = lastMouseEvent.clientX;
+    pt.y = lastMouseEvent.clientY;
+    const svgPt = pt.matrixTransform(ws.getParentSvg().getScreenCTM().inverse());
 
-    return { x, y };
+    // Blockly helper method converts SVG coordinates to workspace coordinates
+    return ws.svgToWorkspaceCoordinates(svgPt.x, svgPt.y);
   }
 
   /* -----------------------------------------------------
@@ -60,9 +64,6 @@
 
   /* -----------------------------------------------------
      SANITIZE BLOCKS FOR PASTE
-     - Auto-create missing variables
-     - Preserve VAR references for subroutine parameters
-     - Ensure dropdowns have valid options
   ----------------------------------------------------- */
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
@@ -75,7 +76,6 @@
               let varName = child.fields.VAR;
               if (typeof varName === "object" && varName.name) varName = varName.name;
               ensureVariableExists(ws, varName, child.fields.VAR?.type || "");
-              // Do not overwrite VAR field
             }
           });
         }
@@ -90,7 +90,6 @@
             let varName = val;
             if (val && typeof val === "object" && val.name) varName = val.name;
             ensureVariableExists(ws, varName, val?.type || "");
-            // Preserve the original VAR reference; do not overwrite field
           }
         }
       }
@@ -152,14 +151,13 @@
       const originalX = data.x || 0;
       const originalY = data.y || 0;
 
-      // Mouse position in workspace coordinates
-      const mousePos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
+      // Workspace coordinates of the last mouse event
+      const mousePos = getMouseWorkspacePosition(ws);
 
       // Offset to paste at cursor
       const dx = mousePos.x - originalX;
       const dy = mousePos.y - originalY;
 
-      // Apply offset to all blocks in tree
       traverseSerializedBlocks(data, (b) => {
         b.x = (b.x || 0) + dx;
         b.y = (b.y || 0) + dy;
