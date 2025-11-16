@@ -21,14 +21,20 @@
       return { x: metrics.viewLeft + metrics.viewWidth / 2, y: metrics.viewTop + metrics.viewHeight / 2 };
     }
 
-    // convert mouse event to workspace coordinates
-    const pt = ws.getParentSvg().createSVGPoint();
-    pt.x = lastMouseEvent.clientX;
-    pt.y = lastMouseEvent.clientY;
-    const svgPt = pt.matrixTransform(ws.getParentSvg().getScreenCTM().inverse());
+    // Get bounding rect of the workspace SVG
+    const svg = ws.getParentSvg();
+    const rect = svg.getBoundingClientRect();
 
-    // Blockly helper method converts SVG coordinates to workspace coordinates
-    return ws.svgToWorkspaceCoordinates(svgPt.x, svgPt.y);
+    // Mouse position relative to SVG
+    const relativeX = lastMouseEvent.clientX - rect.left;
+    const relativeY = lastMouseEvent.clientY - rect.top;
+
+    // Convert to workspace coordinates accounting for zoom & scroll
+    const metrics = ws.getMetrics();
+    const x = metrics.viewLeft + relativeX / ws.scale;
+    const y = metrics.viewTop + relativeY / ws.scale;
+
+    return { x, y };
   }
 
   /* -----------------------------------------------------
