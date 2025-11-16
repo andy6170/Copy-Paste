@@ -1,7 +1,7 @@
 {
   "id": "bf-portal-copy-paste-plugin",
   "name": "BF6 Copy/Paste",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Adds Copy and Paste block support for BF6",
   "main": "index.js",
   "author": "andy6170"

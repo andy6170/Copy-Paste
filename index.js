@@ -35,7 +35,6 @@
       return varMap.createVariable(name, type || "", undefined);
     }
 
-    // Name exists but type mismatch → append _Copy
     if (existing.type !== type) {
       let suffix = 1;
       let newName = name + "_Copy";
@@ -71,23 +70,35 @@
      - Converts VAR objects → string
      - Auto-creates missing variables
      - Ensures dropdowns have valid options
+     - Preserves subroutine parameters
   ----------------------------------------------------- */
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
+      // --- Preserve subroutineArgumentBlock ARGUMENT_INDEX
+      if (b.type === "subroutineArgumentBlock") {
+        const argIndex = b.fields?.ARGUMENT_INDEX;
+        if (argIndex != null && b.inputs) {
+          traverseSerializedBlocks(b.inputs, (child) => {
+            if (child.fields && child.fields.VAR) {
+              let varName = child.fields.VAR;
+              if (typeof varName === "object" && varName.name) varName = varName.name;
+              ensureVariableExists(ws, varName, child.fields.VAR?.type || "");
+              child.fields.VAR = varName;
+            }
+          });
+        }
+        return; // skip further modification for argument blocks
+      }
+
       // --- Normalize VAR fields and auto-create variables
       if (b.fields) {
         for (const [key, val] of Object.entries(b.fields)) {
           const u = key.toUpperCase();
           if (u === "VAR" || u === "VARIABLE" || u.startsWith("VAR")) {
             let varName = val;
-            if (val && typeof val === "object" && val.name) {
-              varName = val.name;
-            }
-
+            if (val && typeof val === "object" && val.name) varName = val.name;
             const varType = val && val.type ? val.type : "";
             ensureVariableExists(ws, varName, varType);
-
-            // Replace VAR field with string name
             b.fields[key] = varName;
           }
         }
@@ -104,14 +115,10 @@
             if (field && field.getOptions) {
               const opts = field.getOptions();
               const valid = opts.map((o) => o[1]);
-              if (!valid.includes(val)) {
-                b.fields[key] = valid[0] || "";
-              }
+              if (!valid.includes(val)) b.fields[key] = valid[0] || "";
             }
             block.dispose(false);
-          } catch (e) {
-            // ignore field sanitization errors
-          }
+          } catch (e) {}
         }
       }
     });
@@ -124,12 +131,7 @@
   ----------------------------------------------------- */
   function extractBlockForClipboard(block) {
     const full = _Blockly.serialization.blocks.save(block);
-
-    // Strip top-level .next chain
-    if (full.next) {
-      delete full.next;
-    }
-
+    if (full.next) delete full.next;
     return full;
   }
 
@@ -155,7 +157,6 @@
       let data = JSON.parse(json);
       data = sanitizeForWorkspace(ws, data);
 
-      // Paste at mouse cursor
       const pos = screenToWorkspace(ws, lastMouse.x, lastMouse.y);
       data.x = pos.x;
       data.y = pos.y;
